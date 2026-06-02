@@ -133,3 +133,12 @@ Android.bp
 *.sh
 out
 kernelzip/
+
+# KernelSU-Next build outputs and secrets
+*.apk
+*.apk.idsig
+*.img
+*.keystore
+paque-pointers
+boot-ksu.img
+arch/arm64/boot/dts/qcom/*.dtbo

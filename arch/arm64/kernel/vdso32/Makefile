@@ -1,3 +1,4 @@
+override LD := arm-linux-gnueabi-ld
 #
 # Building a vDSO image for AArch32.
 #
@@ -10,11 +11,7 @@ else
   CC_ARM32 := $(CROSS_COMPILE_COMPAT)$(cc-name)
 endif
 
-ifneq ($(LLVM),)
 LD_COMPAT ?= $(LD)
-else
-LD_COMPAT ?= $(CROSS_COMPILE_COMPAT)ld
-endif
 
 # Same as cc-*option, but using CC_ARM32 instead of CC
 cc32-option = $(call try-run,\
