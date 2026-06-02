@@ -122,6 +122,27 @@ config KSU_SUSFS_SUS_MAP
 	  - It may not be able to evade detections by apps that implement a good injection detection.
 	  - Effective only on zygote spawned umounted user app process >= 10000.
 
+config KSU_SUSFS_TRY_UMOUNT
+	bool "Enable to umount suspicious mounts before suspending mounts to app"
+	depends on KSU_SUSFS
+	default y
+	help
+	  - Allow to umount suspicious mounts for all non-root uid process.
+
+config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+	bool "Enable to automatically add sus bind mount"
+	depends on KSU_SUSFS_TRY_UMOUNT
+	default y
+	help
+	  - Automatically add a sus bind mount for KSU domain process when doing bind mount.
+
+config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+	bool "Enable to automatically add try_umount for bind mounts"
+	depends on KSU_SUSFS_TRY_UMOUNT
+	default y
+	help
+	  - Automatically add try_umount entry for bind mounts created in KSU domain.
+
 endmenu
 
 endmenu
