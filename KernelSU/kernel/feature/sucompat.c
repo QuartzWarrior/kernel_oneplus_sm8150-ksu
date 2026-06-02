@@ -128,11 +128,21 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
 
     pr_info("ksu_handle_execveat_sucompat: su found\n");
 
-    memcpy((void *)filename->name, ksud_path, sizeof(ksud_path));
-
     ret = escape_with_root_profile();
     if (ret)
         pr_err("escape_with_root_profile() failed: %d\n", ret);
+
+    /* Use ksud if available, otherwise fall back to sh */
+    {
+        struct path kpath;
+        if (kern_path(ksud_path, 0, &kpath) == 0) {
+            path_put(&kpath);
+            memcpy((void *)filename->name, ksud_path, sizeof(ksud_path));
+        } else {
+            pr_warn("ksu_handle_execveat_sucompat: ksud not found, falling back to sh\n");
+            memcpy((void *)filename->name, sh_path, sizeof(sh_path));
+        }
+    }
 
     if (!argv_user_ptr || IS_ERR(argv_user_ptr)) {
         pr_err("!argv_user_ptr || IS_ERR(argv_user_ptr)\n");
