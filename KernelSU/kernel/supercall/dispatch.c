@@ -1,3 +1,7 @@
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_ksu_compat.h>
+#endif
+
 static int do_grant_root(void __user *arg)
 {
     int ret;
