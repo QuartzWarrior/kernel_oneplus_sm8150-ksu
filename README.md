@@ -1,6 +1,8 @@
-# OnePlus 7 Pro (guacamole) — YAAP 16 Kernel with KernelSU-Next
+# OnePlus 7 Pro (guacamole) — YAAP 16 Kernel with SukiSU-Ultra
 
-Linux 4.14.336 for the OnePlus 7 Pro (SM8150 / `guacamole`) running [YAAP 16](https://github.com/yaap), with [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) (legacy non-GKI) fully integrated.
+Linux 4.14.336 for the OnePlus 7 Pro (SM8150 / `guacamole`) running [YAAP 16](https://github.com/yaap), with [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) (`builtin` branch, non-GKI) fully integrated.
+
+> **Looking for KernelSU-Next instead?** See the [`sixteen-ksu`](../../tree/sixteen-ksu) branch.
 
 ---
 
@@ -19,9 +21,10 @@ Linux 4.14.336 for the OnePlus 7 Pro (SM8150 / `guacamole`) running [YAAP 16](ht
 
 ## What's included
 
-- **KernelSU-Next** (`legacy` branch, v3.2.0-legacy) manually integrated via non-GKI kernel hooks
-- All five required hook sites patched: `fs/exec.c`, `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `kernel/reboot.c`
-- Several build and runtime fixes needed to make a clean 4.14 + Clang + ThinLTO build
+- **SukiSU-Ultra** (`builtin` branch, v4.1.3) manually integrated via non-GKI kernel hooks
+- All six hook sites patched: `fs/exec.c`, `fs/open.c`, `fs/read_write.c`, `fs/stat.c`, `kernel/reboot.c`, `drivers/input/input.c`
+- Built-in cert allowlist accepts the official SukiSU-Ultra manager, KernelSU-Next manager, and several other common forks — no custom signing required
+- KPM disabled (requires Linux 5.0+ APIs not present in 4.14)
 
 ---
 
@@ -33,7 +36,6 @@ Linux 4.14.336 for the OnePlus 7 Pro (SM8150 / `guacamole`) running [YAAP 16](ht
 | `arm-linux-gnueabi-*` | `apt install gcc-arm-linux-gnueabi` |
 | `aarch64-linux-gnu-*` | `apt install gcc-aarch64-linux-gnu` |
 | Python 3, `mkbootimg` | `apt install python3 mkbootimg` |
-| Java 17+ | Required only if building the manager APK |
 
 ---
 
@@ -45,17 +47,20 @@ Linux 4.14.336 for the OnePlus 7 Pro (SM8150 / `guacamole`) running [YAAP 16](ht
 
 Output: `arch/arm64/boot/Image.gz-dtb`
 
-### Manager cert hash
+---
 
-By default `build.sh` embeds a hardcoded cert hash. To use the **official KernelSU-Next v3.2.0 manager** from the [releases page](https://github.com/KernelSU-Next/KernelSU-Next/releases) instead, override the hash at build time:
+## Manager
 
-```bash
-KSU_NEXT_MANAGER_SIZE=0x3e6 \
-KSU_NEXT_MANAGER_HASH=79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7 \
-./build.sh
-```
+Download the official SukiSU-Ultra manager APK from the [SukiSU-Ultra releases page](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases). The kernel's cert allowlist already includes SukiSU-Ultra's official signing certificate — no custom build needed.
 
-To use your own signing key (needed for custom manager builds), see [Building the manager](#building-the-manager).
+The kernel also accepts these other manager certs out of the box:
+
+| Manager | Notes |
+|---|---|
+| SukiSU-Ultra (official) | Primary target |
+| KernelSU-Next (official) | `79e590...` / size `0x3e6` |
+| KernelSU (official) | `c371061...` / size `0x033b` |
+| RKSU, MKSU, KowSU | Additional forks |
 
 ---
 
@@ -67,10 +72,10 @@ You need the original `boot.img` from your device:
 adb pull /dev/block/by-name/boot boot.img
 ```
 
-Then extract the ramdisk and repack:
+Extract the ramdisk and repack:
 
 ```python
-# Extract ramdisk (Python — adjust path as needed)
+# Extract ramdisk
 python3 - <<'EOF'
 import struct
 with open('boot.img', 'rb') as f:
@@ -105,102 +110,18 @@ fastboot flash boot boot-ksu.img
 
 ---
 
-## Building the manager
-
-The manager APK must be built from the [KernelSU-Next `dev` branch](https://github.com/KernelSU-Next/KernelSU-Next) with the `ksud` Rust daemon included. Pre-built releases from the KernelSU-Next releases page also work if you use their cert hash (see above).
-
-### Custom build
-
-Requirements: Android SDK (API 36), NDK 29, JDK 21, Rust stable ≥ 1.88.
-
-```bash
-# Clone dev branch (sparse — manager + uapi + userspace only)
-git clone --filter=blob:none --sparse https://github.com/KernelSU-Next/KernelSU-Next.git ksunext-full
-cd ksunext-full
-git sparse-checkout set manager uapi userspace
-
-# Build ksud Rust daemon
-rustup target add aarch64-linux-android
-cargo install cargo-ndk
-cd userspace/ksud
-ANDROID_NDK_HOME=/path/to/ndk cargo ndk -t arm64-v8a build --release
-cp target/aarch64-linux-android/release/ksud \
-   ../../manager/app/src/main/jniLibs/arm64-v8a/libksud.so
-cd ../..
-
-# Link the uapi headers for the JNI native code
-ln -sf "$(pwd)/uapi" manager/app/src/main/cpp/uapi
-
-# Build APK
-echo "sdk.dir=/path/to/android-sdk" > manager/local.properties
-cd manager
-./gradlew assembleRelease
-```
-
-The unsigned APK is at `app/build/outputs/apk/release/KernelSU_Next_*-release.apk`.
-
-Sign it with your own key:
-
-```bash
-keytool -genkeypair -alias ksu -keyalg RSA -keysize 2048 -validity 10000 \
-  -keystore ksu.keystore -storepass YOUR_PASS -keypass YOUR_PASS \
-  -dname "CN=KSU,O=KSU,C=US"
-
-apksigner sign --ks ksu.keystore --ks-pass pass:YOUR_PASS \
-  --ks-key-alias ksu --out KernelSU-signed.apk \
-  app/build/outputs/apk/release/KernelSU_Next_*-release.apk
-```
-
-Extract the cert hash for `build.sh`:
-
-```python
-python3 - <<'EOF'
-import struct, hashlib, sys
-apk = "KernelSU-signed.apk"
-with open(apk,'rb') as f: data=f.read()
-eocd=data.rfind(b'\x50\x4b\x05\x06')
-cd_off=struct.unpack_from('<I',data,eocd+16)[0]
-m=data[:cd_off].rfind(b'APK Sig Block 42')
-sb=struct.unpack_from('<Q',data,m-8)[0]
-pos=m-8-(sb-24)
-while pos<m-16:
-    plen=struct.unpack_from('<Q',data,pos)[0]
-    pid=struct.unpack_from('<I',data,pos+8)[0]
-    if pid==0x7109871a:
-        v2=data[pos+12:pos+8+plen]
-        p=0
-        for _ in range(3): struct.unpack_from('<I',v2,p); p+=4
-        dl=struct.unpack_from('<I',v2,p)[0]; p+=4+dl
-        struct.unpack_from('<I',v2,p)[0]; p+=4
-        cl=struct.unpack_from('<I',v2,p)[0]; p+=4
-        cert=v2[p:p+cl]
-        print(f"KSU_NEXT_MANAGER_SIZE=0x{cl:x}")
-        print(f"KSU_NEXT_MANAGER_HASH={hashlib.sha256(cert).hexdigest()}")
-        sys.exit(0)
-    pos+=8+plen
-EOF
-```
-
-Rebuild the kernel passing those values to `build.sh`:
-
-```bash
-KSU_NEXT_MANAGER_SIZE=0x... KSU_NEXT_MANAGER_HASH=... ./build.sh
-```
-
----
-
 ## Changes vs upstream YAAP kernel
 
-### Kernel hook sites (`fs/`, `kernel/`, `drivers/`)
+### Kernel hook sites
 
 | File | What changed |
 |---|---|
-| `fs/exec.c` | Added `ksu_handle_execveat()` call at the top of `do_execveat_common()` |
-| `fs/open.c` | Added `ksu_handle_faccessat()` call in `SYSCALL_DEFINE3(faccessat, ...)` |
-| `fs/read_write.c` | Added `ksu_handle_vfs_read()` call in `vfs_read()` |
-| `fs/stat.c` | Added `ksu_handle_stat()` call in `vfs_statx()` |
-| `kernel/reboot.c` | Added `ksu_handle_sys_reboot()` call at the top of `SYSCALL_DEFINE4(reboot, ...)` — intercepts the magic-value reboot syscall the KSU daemon uses to install its driver fd |
-| `drivers/input/input.c` | Added `ksu_handle_input_handle_event()` call in `input_handle_event()` |
+| `fs/exec.c` | Added `ksu_handle_execveat()` at the top of `do_execveat_common()` |
+| `fs/open.c` | Added `ksu_handle_faccessat()` in `SYSCALL_DEFINE3(faccessat, ...)` |
+| `fs/read_write.c` | Added `ksu_handle_vfs_read()` in `vfs_read()` |
+| `fs/stat.c` | Added `ksu_handle_stat()` in `vfs_statx()` |
+| `kernel/reboot.c` | Added `ksu_handle_sys_reboot()` at the top of `SYSCALL_DEFINE4(reboot, ...)` |
+| `drivers/input/input.c` | Added `ksu_handle_input_handle_event()` in `input_handle_event()` |
 | `drivers/Kconfig` | Added `source "drivers/kernelsu/Kconfig"` |
 | `drivers/Makefile` | Added `obj-$(CONFIG_KSU) += kernelsu/` |
 
@@ -208,62 +129,59 @@ KSU_NEXT_MANAGER_SIZE=0x... KSU_NEXT_MANAGER_HASH=... ./build.sh
 
 | File | What changed |
 |---|---|
-| `arch/arm64/kernel/vdso32/Makefile` | Changed `LD_COMPAT ?= $(CROSS_COMPILE_COMPAT)ld` to `LD_COMPAT ?= $(LD)` so the vdso32 linker uses `arm-linux-gnueabi-ld` (already set by the `override LD` at the top of the file) instead of the host `ld` which has no ARM target support |
-| `lib/Kconfig` | Added `select ZSTD_COMMON` to both `ZSTD_COMPRESS` and `ZSTD_DECOMPRESS` — the newer split zstd layout put shared code (`HUF_readStats`, `FSE_readNCount`, etc.) behind a separate `ZSTD_COMMON` config that nothing was selecting, causing undefined symbols at link |
-| `scripts/module-lto.lds` | Replaced by KernelSU-Next's Kbuild with an updated LTO linker script that adds CFI-aware `.text` alignment and additional section patterns |
-
-### KernelSU-Next Kbuild auto-patches
-
-KernelSU-Next's `Kbuild` runs `sed` at compile time to backport several APIs this kernel version lacks. These are committed so the patches don't re-run on every clean build:
-
-| File | What changed |
-|---|---|
-| `fs/internal.h` | Added `int path_umount(struct path *path, int flags);` declaration |
-| `fs/namespace.c` | Added `path_umount()` implementation (needed by KSU's module unmounting) |
-| `include/linux/seccomp.h` | Added `atomic_t filter_count` field to `struct seccomp` and `#include <linux/atomic.h>` |
-| `security/selinux/include/objsec.h` | Added `selinux_inode()` and `selinux_cred()` inline helpers (backport from newer kernels) |
-| `security/selinux/hooks.c` | Replaced direct `inode->i_security` casts with `selinux_inode(inode)` |
-| `security/selinux/selinuxfs.c` | Replaced direct `inode->i_security` casts with `selinux_inode(inode)` |
-| `security/selinux/xfrm.c` | Replaced `current_security()` with `selinux_cred(current_cred())` |
+| `arch/arm64/kernel/vdso32/Makefile` | `LD_COMPAT ?= $(LD)` instead of `$(CROSS_COMPILE_COMPAT)ld` — uses `arm-linux-gnueabi-ld` for vdso32 instead of the host `ld` which has no ARM target |
+| `lib/Kconfig` | Added `select ZSTD_COMMON` to `ZSTD_COMPRESS` and `ZSTD_DECOMPRESS` — fixes undefined `HUF_readStats` / `FSE_readNCount` at link time |
 
 ### defconfig (`arch/arm64/configs/neptune_defconfig`)
 
-| Config added | Reason |
+| Config | Reason |
 |---|---|
-| `CONFIG_KSU=y` | KernelSU-Next |
+| `CONFIG_KSU=y` | SukiSU-Ultra core |
 | `CONFIG_KSU_DEBUG=y` | Debug logging — remove for release builds |
-| `CONFIG_CPU_INPUT_BOOST=y` | `kernel/fork.c` and `kernel/sched/core.c` unconditionally reference symbols defined only in `drivers/cpufreq/cpu_input_boost.c` |
+| `CONFIG_KALLSYMS_ALL=y` | Required by SukiSU-Ultra for non-GKI builds |
+| `# CONFIG_KPM is not set` | KPM uses Linux 5.0 APIs (`access_ok` 2-arg, etc.) not available on 4.14 |
+| `# CONFIG_KSU_SUSFS is not set` | SUSFS requires additional kernel patches not included here |
+| `CONFIG_CPU_INPUT_BOOST=y` | `kernel/fork.c` and `kernel/sched/core.c` reference symbols defined only in `cpu_input_boost.c` |
 
-`arch/arm64/configs/vendor/sm8150-perf_defconfig` received the same `CONFIG_KSU=y` (and kprobe entries that are a no-op on this build — `CONFIG_MODULES` is not set so kprobes can't be enabled, but the entries are harmless).
+### SukiSU-Ultra internal patches (`KernelSU/kernel/`)
 
-### KernelSU-Next internal patches (`KernelSU-Next/kernel/`)
+**`KernelSU/kernel/runtime/ksud.c`** — throne tracking never ran on fresh installs
 
-These patch files inside the vendored KernelSU-Next tree that were required to make the non-GKI built-in build actually work:
+`on_post_fs_data()` fires when Zygote starts. In the built-in (non-LKM) path, `track_throne()` — the scan that finds and records the manager APK UID — was never called: the late-loaded path called it explicitly, the built-in path didn't, and `ksu_cred` had no proper SELinux context. Fixed by calling `apply_kernelsu_rules()` + `cache_sid()` + `setup_ksu_cred()` then `track_throne()` at the start of `on_post_fs_data()`, plus a 3-second delayed retry for when `packages.list` is available from PMS.
 
-**`KernelSU-Next/kernel/runtime/boot_event.c`** — throne tracking never ran on fresh installs
+Also guarded all `ksu_selinux_hide_*` calls with `LINUX_VERSION_CODE >= 5.10` (they were unconditional in the `builtin` branch — a bug causing implicit-declaration errors on 4.14).
 
-`on_post_fs_data()` fires when Zygote starts (via the exec hook). In the normal built-in path (no LKM, no `ksud` installed), `track_throne()` — the scan that finds the manager APK and records its UID — was never called: the late-loaded path called it explicitly, the built-in path didn't, and `ksu_cred` hadn't been given a proper SELinux context yet. Fixed by calling `apply_kernelsu_rules()` + `cache_sid()` + `setup_ksu_cred()` then `track_throne()` at the start of `on_post_fs_data()`, and scheduling a 3-second delayed retry for when `packages.list` is available from PMS. Also widened `MASK_SYSTEM` in `pkg_observer.c` with `FS_MODIFY | FS_CLOSE_WRITE` so direct writes to `packages.list` (not just atomic renames) trigger a re-scan.
+**`KernelSU/kernel/hook/lsm_hook.c`** — manager detection circular dependency
 
-**`KernelSU-Next/kernel/hook/lsm_hooks.c`** — manager detection circular dependency
+Added a `task_prctl` LSM hook for `prctl(0xDEADBEEF, 2, ...)`. On first call, crowns the caller's UID as manager and installs the `[ksu_driver]` fd directly into the calling process, breaking the dependency where the ioctl fd couldn't be installed without throne tracking having already found the APK.
 
-The manager's native library detects KSU via two paths: ioctl on the `[ksu_driver]` fd (primary), and `prctl(0xDEADBEEF, 2, ...)` (legacy fallback). The fd can only exist in the manager's process after the kernel has crowned the manager's UID — but crowning required `track_throne()` to have run — which requires `packages.list` to be available — which requires Android to have fully booted — by which point the manager has already checked and cached "KSU not found". Added a `task_prctl` LSM hook for `0xDEADBEEF` that (a) returns `KERNEL_SU_VERSION`, (b) crowns the caller's UID as manager on first call, and (c) installs the driver fd directly into the calling process, breaking the dependency cycle.
+**`KernelSU/kernel/feature/sucompat.c`** — manager couldn't bootstrap
 
-**`KernelSU-Next/kernel/feature/sucompat.c`** — manager couldn't bootstrap root shell
+Added `|| is_uid_manager(current_uid().val)` to `__is_su_allowed()` so the manager can execute `su` before it has explicitly granted itself root. On a fresh install the allowlist is empty; without this the manager deadlocks trying to get root to set up root.
 
-Two changes to `ksu_handle_execveat_sucompat`: added `|| is_uid_manager(current_uid().val)` to the allow-list check so the manager can execute `su` before it has explicitly granted itself root (on a fresh install the allow-list is empty); and added a check for `/data/adb/ksud` before redirecting `su` — if ksud isn't installed yet, falls back to `/system/bin/sh` with a root profile so the manager can bootstrap. After the manager's first run ksud installs itself and the fallback is never used again.
+**`KernelSU/kernel/manager/apk_sign.c`** — custom manager cert
+
+Added a custom signing key entry (`0x306` / `363a3e...`) alongside the upstream cert allowlist, allowing a locally-built manager APK to be used alongside the official releases.
+
+**`KernelSU/kernel/manager/pkg_observer.c`** — missed packages.list writes
+
+Widened `MASK_SYSTEM` with `FS_MODIFY | FS_CLOSE_WRITE` so direct writes to `packages.list` (not just atomic renames) trigger a throne re-scan.
+
+**`KernelSU/kernel/sulog/event.c`** — pointer/value mismatch
+
+`user_arg_null_ptr()` returns `struct user_arg_ptr *` but `ksu_sulog_capture` expects `struct user_arg_ptr` by value. Fixed with `*user_arg_null_ptr()`.
 
 ---
 
 ## Security notes
 
-- The `task_prctl` handler crowns the **first process** to call `prctl(0xDEADBEEF, 2, ...)` as the manager. In practice this is always the KernelSU manager app (it starts before user apps), but it does not verify the APK cert the way `track_throne()` does. If cert-verified crowning matters to you, the delayed `track_throne()` call in `on_post_fs_data()` will eventually override the prctl-based crowning with a cert-verified one once `packages.list` is available.
-- The manager auto-grant in sucompat only applies to the crowned manager UID — no other app benefits.
-- The ksud fallback to `/system/bin/sh` is only active while `/data/adb/ksud` is absent (i.e., before the manager's first successful run). Once ksud installs itself the fallback path is never taken.
+- The `task_prctl` handler crowns the **first process** to call `prctl(0xDEADBEEF, 2, ...)` as the manager. In practice this is always the manager app, but cert verification via `track_throne()` will eventually override it once `packages.list` is available.
+- The manager auto-grant in sucompat only applies to the crowned manager UID — no other app is affected.
 
 ---
 
 ## Credits
 
-- [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) — kernel root solution
+- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) — kernel root solution
 - [YAAP](https://github.com/yaap) — base kernel source
-- [@sidex15, @maxsteeel, @rifsxd](https://kernelsu-next.github.io/webpage/pages/how-to-integrate-for-non-gki.html) — non-GKI legacy integration
+- [@sidex15, @maxsteeel, @rifsxd](https://kernelsu-next.github.io/webpage/pages/how-to-integrate-for-non-gki.html) — non-GKI legacy integration guidance

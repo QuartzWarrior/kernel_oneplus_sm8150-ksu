@@ -25,6 +25,4 @@ echo "Compiling kernel"
 echo
 
 make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-  KSU_NEXT_MANAGER_SIZE=0x306 \
-  KSU_NEXT_MANAGER_HASH=363a3e793b47249815300a94f14c443994b828d06896672fcb582ddd2ed8dad7 \
   -j$(nproc --all) || exit 1
